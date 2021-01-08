@@ -12,6 +12,8 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/operator-framework/operator-sdk/pkg/predicate"
+	istionetwork "istio.io/client-go/pkg/apis/networking/v1alpha3"
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -89,6 +91,37 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		return err
 	}
 
+	// Watch for changes to secondary resources
+	err = c.Watch(&source.Kind{Type: &appsv1.Deployment{}}, &handler.EnqueueRequestForOwner{
+		IsController: false,
+		OwnerType:    &istiov1alpha1.Session{},
+	}, predicate.GenerationChangedPredicate{})
+	if err != nil {
+		return err
+	}
+
+	err = c.Watch(&source.Kind{Type: &istionetwork.VirtualService{}}, &handler.EnqueueRequestForOwner{
+		IsController: false,
+		OwnerType:    &istiov1alpha1.Session{},
+	}, predicate.GenerationChangedPredicate{})
+	if err != nil {
+		return err
+	}
+	err = c.Watch(&source.Kind{Type: &istionetwork.DestinationRule{}}, &handler.EnqueueRequestForOwner{
+		IsController: false,
+		OwnerType:    &istiov1alpha1.Session{},
+	}, predicate.GenerationChangedPredicate{})
+	if err != nil {
+		return err
+	}
+	err = c.Watch(&source.Kind{Type: &istionetwork.Gateway{}}, &handler.EnqueueRequestForOwner{
+		IsController: false,
+		OwnerType:    &istiov1alpha1.Session{},
+	}, predicate.GenerationChangedPredicate{})
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -131,6 +164,7 @@ func (r *ReconcileSession) Reconcile(request reconcile.Request) (reconcile.Resul
 		Context:   context.Background(),
 		Name:      request.Name,
 		Namespace: request.Namespace,
+		UID:       session.UID,
 		Route:     ConvertAPIRouteToModelRoute(session),
 		Log:       reqLogger,
 		Client:    r.client,
@@ -244,6 +278,8 @@ func (r *ReconcileSession) sync(ctx model.SessionContext, session *istiov1alpha1
 			if err != nil {
 				ctx.Log.Error(err, "Mutate", "name", ref.Name)
 			}
+			ConvertModelRefToAPIStatus(*ref, session)
+			ctx.Client.Status().Update(ctx, session)
 		}
 	}
 
